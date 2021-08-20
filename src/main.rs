@@ -1,18 +1,23 @@
 use clap::{App, Arg, ArgMatches};
 use itertools::Itertools;
 use regex::Regex;
-use std::{collections::HashSet, env, fs};
+use std::{
+    collections::HashSet,
+    fs::{self, OpenOptions},
+    io::{Read, Write},
+};
 
-const CHARS_MAP: [&str; 19] = [
-    "АA", "аa", "ВB", "СC", "ЕE", "еe", "КK", "кk", "З3", "з3", "МM", "НH", "ОO", "оo", "РP", "рp",
-    "ТT", "ХX", "хx",
+use encoding_rs::WINDOWS_1251;
+use encoding_rs_io::DecodeReaderBytesBuilder;
+
+// Array of characters visually similar to Cyrillic characters
+// In the first place should be a Cyrillic character, then all characters that may be similar
+const CHARS_MAP: [&str; 21] = [
+    "АA", "аa", "ВB", "СC", "сc", "ЕE", "еe", "КK", "кk", "З3", "з3", "МM", "НH", "ОO", "оo", "РP",
+    "рp", "ТT", "ХX", "хx", "уy",
 ];
-// const CHARS_MAP: [&str; 3] = ["аx", "Мx", "Тx"];
 
 fn main() {
-    let executable = env::current_exe().unwrap();
-    println!("{:?}", executable);
-
     let arg_matches = get_args_matches();
 
     if let Some(word) = arg_matches.value_of("word") {
@@ -64,24 +69,38 @@ fn get_args_matches<'a>() -> ArgMatches<'a> {
 
 fn permutation_single_word(word: &str) {
     let mut words = HashSet::<String>::new();
-    //permutation(word, &mut words, 0);
-    permutation_test(word, &mut words, 0);
+    permutation(word, &mut words, 0);
 
-    words.iter().for_each(|w| {
-        if !word.eq(w) {
-            println!("{},", &w)
-        }
-    });
+    words.iter().for_each(|w| println!("{},", &w));
 }
 
 fn permutation_file(input_filename: &str, output_filename: &str) {
     let contents: String =
         fs::read_to_string(input_filename).expect("File could not be opened for reading");
 
-    let re = Regex::new(r"[*()]|[~\d+]").unwrap();
-    let contents = re.replace_all(&contents, "");
+    // TODO for
+    // let input_file = OpenOptions::new().read(true).open(input_filename).unwrap();
+    // let mut input_transcoded = DecodeReaderBytesBuilder::new()
+    //     .encoding(Some(WINDOWS_1251))
+    //     .build(input_file);
 
-    let re = Regex::new(r"[ ]|[\r\n]|[\r]").unwrap();
+    // let mut contents: String = String::new();
+    // if let Err(e) = input_transcoded.read_to_string(&mut contents) {
+    //     eprintln!("Couldn't read from file: {}", e);
+    // }
+
+    let mut output_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(false)
+        .open(output_filename)
+        .unwrap();
+
+    // let re = Regex::new(r"[*()]|[~\d+]").unwrap();
+    // let contents = re.replace_all(&contents, "");
+
+    // let re = Regex::new(r"[ ]|[\r\n]|[\r]").unwrap();
+    let re = Regex::new(r"[\r\n]|[\r]").unwrap();
     let fields: Vec<&str> = re
         .split(&contents)
         .unique()
@@ -96,34 +115,16 @@ fn permutation_file(input_filename: &str, output_filename: &str) {
         permutation(word, &mut words, 0);
 
         words.iter().for_each(|w| {
-            if !word.eq(w) {
-                println!("{},", &w)
+            if let Err(e) = writeln!(output_file, "{},", w) {
+                eprintln!("Couldn't write to file: {}", e);
+                return;
             }
         });
     }
 }
 
+// Рекурсивный метод подстановки/перестановки символов. Строится дерево слов, каждый следующий узел строится на основе родительского
 fn permutation(word: &str, words: &mut HashSet<String>, index: usize) {
-    let ch = match word.chars().nth(index) {
-        Some(x) => x,
-        None => return,
-    };
-    for chars in CHARS_MAP {
-        if !chars.contains(ch) {
-            permutation(&word, words, index + 1);
-            continue;
-        }
-
-        for replace_char in chars.chars() {
-            let new_word = replace_nth_char(word, index, replace_char);
-            words.insert(new_word.clone());
-            permutation(&new_word, words, index + 1);
-        }
-        break;
-    }
-}
-
-fn permutation_test(word: &str, words: &mut HashSet<String>, index: usize) {
     for (i, ch) in word.chars().skip(index).enumerate() {
         for chars in CHARS_MAP {
             if !chars.contains(ch) {
@@ -132,9 +133,12 @@ fn permutation_test(word: &str, words: &mut HashSet<String>, index: usize) {
 
             for replace_char in chars.chars() {
                 let new_word = replace_nth_char(word, index + i, replace_char);
+                if new_word.eq(word) {
+                    continue;
+                }
 
                 words.insert(new_word.clone());
-                permutation_test(&new_word, words, index + i + 1);
+                permutation(&new_word, words, index + i + 1);
             }
             break;
         }
